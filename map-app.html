@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>交通监控点地图与路径规划</title>
+    <!-- 引入Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入Font Awesome -->
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    
+    <!-- 配置Tailwind自定义颜色和字体 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#2563eb',
+                        secondary: '#f97316',
+                        success: '#10b981',
+                        danger: '#ef4444',
+                        warning: '#f59e0b',
+                        dark: '#1e293b',
+                        light: '#f8fafc'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .map-container {
+                height: calc(100vh - 18rem);
+            }
+            @media (max-width: 768px) {
+                .map-container {
+                    height: calc(100vh - 26rem);
+                }
+            }
+            .shadow-soft {
+                box-shadow: 0 2px 15px rgba(0, 0, 0, 0.05);
+            }
+            .transition-custom {
+                transition: all 0.3s ease;
+            }
+            .loading-spinner {
+                border-top-color: #2563eb;
+                animation: spinner 0.8s linear infinite;
+            }
+            @keyframes spinner {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            /* 开关样式 */
+            .toggle-checkbox:checked {
+                right: 0;
+                border-color: #68D391;
+            }
+            .toggle-checkbox:checked + .toggle-label {
+                background-color: #68D391;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 font-sans text-gray-800">
+    <!-- 顶部导航栏 -->
+    <header class="bg-white shadow-md fixed top-0 left-0 right-0 z-50 transition-custom">
+        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <i class="fa fa-map-marker text-primary text-2xl"></i>
+                <h1 class="text-xl md:text-2xl font-bold text-primary">交通监控点地图</h1>
+            </div>
+            <div class="hidden md:flex items-center space-x-6">
+                <a href="#" class="text-gray-600 hover:text-primary transition-custom flex items-center">
+                    <i class="fa fa-info-circle mr-1"></i> 关于
+                </a>
+                <a href="#" class="text-gray-600 hover:text-primary transition-custom flex items-center">
+                    <i class="fa fa-question-circle mr-1"></i> 帮助
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="container mx-auto px-4 pt-24 pb-12">
+        <!-- API密钥输入区域 -->
+        <div class="bg-white rounded-xl shadow-soft p-4 md:p-6 mb-6">
+            <h2 class="text-lg md:text-xl font-semibold mb-4 text-gray-800 flex items-center">
+                <i class="fa fa-key text-primary mr-2"></i>百度地图API设置
+            </h2>
+            
+            <div class="flex flex-col md:flex-row gap-4">
+                <div class="flex-1">
+                    <label for="baiduMapApiKey" class="block text-sm font-medium text-gray-700 mb-2">
+                        百度地图API密钥
+                    </label>
+                    <input type="text" id="baiduMapApiKey" placeholder="请输入您的百度地图API密钥" 
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-custom" />
+                    <p class="text-xs text-gray-500 mt-1">您可以在百度地图开放平台申请API密钥</p>
+                </div>
+                
+                <!-- 调整按钮样式使其与输入框高度一致并居中 -->
+                <div class="flex items-center">
+                    <button id="loadMarkersBtn" class="px-6 py-2 bg-secondary text-white rounded-lg hover:bg-secondary/90 focus:ring-4 focus:ring-secondary/30 transition-custom flex items-center justify-center h-[42px]">
+                        <i class="fa fa-camera mr-2"></i> 标记限行摄像头
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 路径规划表单 -->
+        <div class="bg-white rounded-xl shadow-soft p-4 md:p-6 mb-6">
+            <h2 class="text-lg md:text-xl font-semibold mb-4 text-gray-800 flex items-center">
+                <i class="fa fa-road text-secondary mr-2"></i>路径规划（避开监控点）
+            </h2>
+            
+            <form id="routeForm" class="space-y-4 md:space-y-0 md:grid md:grid-cols-2 md:gap-4">
+                <div class="space-y-2">
+                    <label for="startPoint" class="block text-sm font-medium text-gray-700">
+                        <i class="fa fa-map-marker text-green-500 mr-1"></i>起点
+                    </label>
+                    <div class="relative">
+                        <input type="text" id="startPoint" placeholder="输入起点位置" 
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-custom" />
+                        <button type="button" id="locateStart" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-primary transition-custom">
+                            <i class="fa fa-location-arrow"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="space-y-2">
+                    <label for="endPoint" class="block text-sm font-medium text-gray-700">
+                        <i class="fa fa-flag text-red-500 mr-1"></i>终点
+                    </label>
+                    <div class="relative">
+                        <input type="text" id="endPoint" placeholder="输入终点位置" 
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-custom" />
+                        <button type="button" id="locateEnd" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-primary transition-custom">
+                            <i class="fa fa-location-arrow"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="md:col-span-2 flex justify-between items-center space-x-4 pt-2">
+                    <div class="flex items-center">
+                        <span class="text-sm text-gray-600 mr-2">坐标转换：</span>
+                        <div class="relative inline-block w-10 h-5 transition duration-200 ease-in">
+                            <input type="checkbox" id="coordConversionToggle" checked 
+                                class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in focus:outline-none"/>
+                            <label for="coordConversionToggle" class="toggle-label block overflow-hidden h-5 rounded-full bg-gray-300 cursor-pointer"></label>
+                        </div>
+                    </div>
+                    
+                    <div class="flex space-x-4">
+                        <button type="submit" class="px-6 py-2.5 bg-primary text-white rounded-lg hover:bg-primary/90 focus:ring-4 focus:ring-primary/30 transition-custom flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
+                            <i class="fa fa-search mr-2"></i> 规划路径
+                        </button>
+                        <button type="button" id="clearRoute" class="px-6 py-2.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-custom flex items-center">
+                            <i class="fa fa-trash mr-2"></i> 清除路径
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+        
+        <!-- 地图容器 -->
+        <div class="relative rounded-xl overflow-hidden shadow-soft map-container">
+            <div id="map" class="w-full h-full bg-gray-100 flex items-center justify-center">
+                <div class="text-center text-gray-500">
+                    <i class="fa fa-map-o text-4xl mb-2"></i>
+                    <p>请输入百度地图API密钥并点击"标记限行摄像头"按钮加载地图</p>
+                </div>
+            </div>
+            
+            <!-- 加载中指示器 -->
+            <div id="loadingIndicator" class="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10 hidden">
+                <div class="flex flex-col items-center">
+                    <div class="w-10 h-10 rounded-full border-4 loading-spinner"></div>
+                    <p class="mt-3 text-gray-600">加载监控点数据中...</p>
+                </div>
+            </div>
+            
+            <!-- 信息面板 -->
+            <div class="absolute top-4 right-4 bg-white/90 backdrop-blur-sm rounded-lg shadow-md p-3 max-w-xs hidden md:block">
+                <h3 class="font-semibold text-gray-800 mb-2 flex items-center">
+                    <i class="fa fa-info-circle text-primary mr-1"></i> 监控点信息
+                </h3>
+                <p class="text-sm text-gray-600 mb-2">当前共显示 <span id="markerCount" class="font-medium text-primary">0</span> 个监控点</p>
+                <div class="flex flex-wrap items-center text-xs text-gray-500 gap-y-1">
+                    <span class="flex items-center mr-3">
+                        <span class="inline-block w-3 h-3 rounded-full bg-danger mr-1"></span> 状态异常
+                    </span>
+                    <span class="flex items-center mr-3">
+                        <span class="inline-block w-3 h-3 rounded-full bg-success mr-1"></span> 正常工作
+                    </span>
+                    <span class="flex items-center">
+                        <span class="inline-block w-3 h-3 rounded-full bg-warning mr-1"></span> 其他状态
+                    </span>
+                </div>
+            </div>
+            
+            <!-- 移动端信息面板 -->
+            <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur-sm rounded-lg shadow-md p-3 w-[90%] md:hidden">
+                <h3 class="font-semibold text-gray-800 mb-1 flex items-center text-sm">
+                    <i class="fa fa-info-circle text-primary mr-1"></i> 监控点信息
+                </h3>
+                <p class="text-xs text-gray-600">当前共显示 <span id="markerCountMobile" class="font-medium text-primary">0</span> 个监控点</p>
+            </div>
+        </div>
+        
+        <!-- 点位列表 -->
+        <div class="mt-6 bg-white rounded-xl shadow-soft p-4 md:p-6">
+            <h2 class="text-lg md:text-xl font-semibold mb-4 text-gray-800 flex items-center">
+                <i class="fa fa-list-alt text-primary mr-2"></i>监控点列表
+            </h2>
+            
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">名称</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">位置</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">区域</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">监控类型</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                        </tr>
+                    </thead>
+                    <tbody id="markerTable" class="bg-white divide-y divide-gray-200">
+                        <tr>
+                            <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                                请输入百度地图API密钥并加载监控点数据
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="bg-dark text-white py-6">
+        <div class="container mx-auto px-4 text-center text-sm">
+            <p>© 2025 交通监控点地图应用 | 使用百度地图API开发</p>
+        </div>
+    </footer>
+
+    <!-- 点位信息弹窗 -->
+    <div id="infoModal" class="fixed inset-0 bg-black/50 z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[80vh] overflow-y-auto">
+            <div class="p-5 border-b border-gray-200">
+                <div class="flex justify-between items-center">
+                    <h3 id="modalTitle" class="text-lg font-semibold text-gray-800"></h3>
+                    <button id="closeModal" class="text-gray-500 hover:text-gray-700 transition-custom">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="modalContent" class="p-5 space-y-3">
+                <!-- 弹窗内容将通过JavaScript动态生成 -->
+            </div>
+            <div class="p-4 bg-gray-50 rounded-b-xl flex justify-end">
+                <button id="closeModalBtn" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-custom">
+                    关闭
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 百度地图初始化相关变量
+        let map, driving;
+        let markers = [];
+        let routeLine = null;
+        let startMarker = null;
+        let endMarker = null;
+        let convertedPoints = []; // 存储转换后的坐标
+        let monitorData = { data: [] }; // 存储从API获取的监控点数据
+        const BATCH_SIZE = 10; // 每批处理的最大点数，修改为10
+        const AVOID_DISTANCE = 100; // 避开监控点的距离(米)
+        let coordConversionEnabled = true; // 坐标转换开关状态，默认开启
+        let mapLoaded = false; // 地图是否已加载
+        let scriptLoading = false; // 标记是否正在加载脚本
+        
+        // 页面加载完成后初始化事件绑定
+        window.onload = function() {
+            // 绑定事件
+            bindEvents();
+        };
+        
+        // 初始化百度地图 - 修复BMap未定义问题
+        function initMap(apiKey) {
+            // 如果正在加载中，不重复加载
+            if (scriptLoading) return;
+            
+            // 先移除可能存在的旧脚本，避免重复加载导致的问题
+            const oldScript = document.querySelector('script[src*="api.map.baidu.com"]');
+            if (oldScript) {
+                oldScript.remove();
+            }
+            
+            // 显示加载指示器
+            document.getElementById('loadingIndicator').classList.remove('hidden');
+            scriptLoading = true;
+            
+            // 创建全局函数处理百度地图API加载完成
+            window.baiduMapCallback = function() {
+                scriptLoading = false;
+                
+                try {
+                    // 检查BMap是否存在
+                    if (typeof BMap === 'undefined') {
+                        throw new Error("BMap对象未定义，API加载失败");
+                    }
+                    
+                    // API加载完成后初始化地图
+                    map = new BMap.Map("map");
+                    
+                    // 设置默认中心点（长安区大致位置）
+                    const defaultPoint = new BMap.Point(108.96, 34.07);
+                    map.centerAndZoom(defaultPoint, 13);
+                    
+                    // 添加地图控件
+                    map.addControl(new BMap.NavigationControl());  // 缩放控件
+                    map.addControl(new BMap.ScaleControl());      // 比例尺控件
+                    map.addControl(new BMap.OverviewMapControl());// 缩略图控件
+                    map.enableScrollWheelZoom(true);              // 启用滚轮缩放
+                    
+                    // 初始化驾车路线规划，不自动渲染路线
+                    driving = new BMap.DrivingRoute(map, {
+                        renderOptions: { map: null }, // 不自动在地图上渲染路线
+                        onSearchComplete: onDrivingSearchComplete
+                    });
+                    
+                    mapLoaded = true;
+                    
+                    // 启用路径规划按钮
+                    document.querySelector('#routeForm button[type="submit"]').removeAttribute('disabled');
+                    
+                    // 加载监控点数据
+                    fetchMonitorData();
+                } catch (error) {
+                    alert("地图初始化失败: " + error.message);
+                    console.error("地图初始化错误:", error);
+                    document.getElementById('loadingIndicator').classList.add('hidden');
+                }
+            };
+            
+            // 动态加载百度地图API，使用回调函数确保加载完成
+            const script = document.createElement('script');
+            script.type = 'text/javascript';
+            // 添加回调参数确保API加载完成后执行我们的函数
+            script.src = `https://api.map.baidu.com/api?v=3.0&ak=${apiKey}&callback=baiduMapCallback`;
+            
+            // 处理加载错误
+            script.onerror = function() {
+                scriptLoading = false;
+                alert("百度地图API加载失败，请检查网络连接或API密钥是否有效");
+                document.getElementById('loadingIndicator').classList.add('hidden');
+            };
+            
+            document.head.appendChild(script);
+        }
+
+        // 从API获取监控点数据
+        function fetchMonitorData() {
+            // 新地址：长安区数据
+            const apiUrl = "https://traffic.xianjiaojing.com/api/v1/dmvAppointment/TrafficLbs/query?farea=%E9%95%BF%E5%AE%89%E5%8C%BA&fphotoArea=%E9%99%90%E8%A1%8C";
+            
+            // 雁塔区
+            // const apiUrl = "https://traffic.xianjiaojing.com/api/v1/dmvAppointment/TrafficLbs/query?farea=%E9%9B%81%E5%A1%94%E5%8C%BA&fphotoArea=%E8%B6%85%E9%80%9F";
+            
+            // 原地址：西安全市数据（保留作为注释）
+            // const apiUrl = "https://traffic.xianjiaojing.com/api/v1/dmvAppointment/TrafficLbs/query?farea=&fphotoArea=%E9%99%90%E8%A1%8C";
+            
+            fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP错误，状态码: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // 隐藏加载指示器
+                    document.getElementById('loadingIndicator').classList.add('hidden');
+                    
+                    if (data.retCode === "success" && data.data && data.data.length > 0) {
+                        // 限制数据量为最多10条
+                        monitorData = {
+                            ...data,
+                            data: data.data
+                        };
+                        
+                        // 分批次转换所有监控点坐标并标记
+                        batchConvertAndMarkPoints();
+                        
+                        // 填充监控点表格
+                        populateMonitorTable();
+                        
+                        // 更新监控点计数
+                        document.getElementById('markerCount').textContent = monitorData.data.length;
+                        document.getElementById('markerCountMobile').textContent = monitorData.data.length;
+                    } else {
+                        alert("获取监控点数据失败: " + (data.retMsg || "未知错误"));
+                        console.error("获取监控点数据失败", data);
+                    }
+                })
+                .catch(error => {
+                    // 隐藏加载指示器
+                    document.getElementById('loadingIndicator').classList.add('hidden');
+                    
+                    alert("获取监控点数据时发生错误，请稍后重试");
+                    console.error("获取监控点数据错误:", error);
+                });
+        }
+
+        // 分批次转换坐标并标记所有点
+        function batchConvertAndMarkPoints() {
+            // 清除现有标记
+            markers.forEach(marker => map.removeOverlay(marker));
+            markers = [];
+            convertedPoints = new Array(monitorData.data.length); // 初始化数组，保持顺序
+            
+            if (monitorData.data.length === 0) return;
+            
+            // 如果坐标转换开关关闭，直接使用原始坐标
+            if (!coordConversionEnabled) {
+                monitorData.data.forEach((point, index) => {
+                    const baiduPoint = new BMap.Point(
+                        parseFloat(point.flongitude), 
+                        parseFloat(point.flatitude)
+                    );
+                    convertedPoints[index] = baiduPoint;
+                    addMarkerToMap(point, baiduPoint, index);
+                });
+                
+                // 以第一个点为中心显示地图
+                map.centerAndZoom(convertedPoints[0], 14);
+                return;
+            }
+            
+            // 准备所有需要转换的点
+            const allPoints = monitorData.data.map((point, index) => ({
+                point: new BMap.Point(
+                    parseFloat(point.flongitude), 
+                    parseFloat(point.flatitude)
+                ),
+                index: index,
+                data: point
+            }));
+            
+            // 计算需要多少批次（现在BATCH_SIZE为10）
+            const totalBatches = Math.ceil(allPoints.length / BATCH_SIZE);
+            let completedBatches = 0;
+            
+            // 处理每个批次
+            for (let i = 0; i < totalBatches; i++) {
+                // 计算当前批次的起始和结束索引
+                const startIndex = i * BATCH_SIZE;
+                const endIndex = Math.min(startIndex + BATCH_SIZE, allPoints.length);
+                const batch = allPoints.slice(startIndex, endIndex);
+                
+                // 提取当前批次的点
+                const pointsToConvert = batch.map(item => item.point);
+                
+                // 执行批量转换 - 1表示WGS84坐标，5表示百度BD09坐标
+                const convertor = new BMap.Convertor();
+                convertor.translate(pointsToConvert, 1, 5, function(data) {
+                    // 处理转换结果
+                    if (data.status === 0) {
+                        // 转换成功
+                        data.points.forEach((convertedPoint, idx) => {
+                            const originalItem = batch[idx];
+                            convertedPoints[originalItem.index] = convertedPoint;
+                            addMarkerToMap(originalItem.data, convertedPoint, originalItem.index);
+                        });
+                    } else {
+                        // 转换失败，使用原始坐标
+                        batch.forEach((item, idx) => {
+                            convertedPoints[item.index] = item.point;
+                            addMarkerToMap(item.data, item.point, item.index);
+                        });
+                        console.error(`第${i+1}批坐标转换失败，使用原始坐标`);
+                    }
+                    
+                    // 检查是否所有批次都已处理完成
+                    completedBatches++;
+                    if (completedBatches === totalBatches) {
+                        // 所有批次处理完成后，以第一个点为中心显示地图
+                        if (convertedPoints.length > 0) {
+                            map.centerAndZoom(convertedPoints[0], 14);
+                        }
+                    }
+                });
+            }
+        }
+
+        // 向地图添加标记
+        function addMarkerToMap(pointData, point, index) {
+            // 创建默认标记
+            const marker = new BMap.Marker(point);
+            map.addOverlay(marker);
+            markers.push(marker);
+            
+            // 添加点击事件，显示详细信息
+            marker.addEventListener('click', function() {
+                showPointInfo(pointData);
+            });
+        }
+
+        // 填充监控点表格
+        function populateMonitorTable() {
+            const tableBody = document.getElementById('markerTable');
+            tableBody.innerHTML = '';
+            
+            if (monitorData.data.length === 0) {
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                            没有找到监控点数据
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            monitorData.data.forEach((point, index) => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50 transition-custom cursor-pointer';
+                
+                // 行点击事件
+                row.addEventListener('click', (e) => {
+                    if (!e.target.closest('.status-cell')) {
+                        if (convertedPoints[index]) {
+                            map.panTo(convertedPoints[index]);
+                            map.setZoom(16);
+                        }
+                    }
+                });
+                
+                // 状态显示
+                let statusText, statusClass;
+                switch(point.fstatus) {
+                    case 1:
+                        statusText = "正常工作";
+                        statusClass = "bg-green-100 text-green-800";
+                        break;
+                    case 2:
+                    case 3:
+                        statusText = "状态异常";
+                        statusClass = "bg-red-100 text-red-800";
+                        break;
+                    default:
+                        statusText = `状态 ${point.fstatus}`;
+                        statusClass = "bg-yellow-100 text-yellow-800";
+                }
+                
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${point.fid}</td>
+                    <td class="px-6 py-4 text-sm text-gray-500">${point.fname}</td>
+                    <td class="px-6 py-4 text-sm text-gray-500">${point.flocation}</td>
+                    <td class="px-6 py-4 text-sm text-gray-500">${point.farea}</td>
+                    <td class="px-6 py-4 text-sm text-gray-500">${point.fphotoArea}</td>
+                    <td class="px-6 py-4 whitespace-nowrap status-cell" data-index="${index}">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}">
+                            ${statusText}
+                        </span>
+                    </td>
+                `;
+                
+                tableBody.appendChild(row);
+                
+                // 为状态单元格添加点击事件
+                const statusCell = row.querySelector('.status-cell');
+                statusCell.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    showPointInfo(point);
+                });
+            });
+        }
+
+        // 显示点位详细信息
+        function showPointInfo(point) {
+            const modalTitle = document.getElementById('modalTitle');
+            const modalContent = document.getElementById('modalContent');
+            const infoModal = document.getElementById('infoModal');
+            
+            modalTitle.textContent = point.fname;
+            
+            // 状态显示
+            let statusText, statusClass;
+            switch(point.fstatus) {
+                case 1:
+                    statusText = "正常工作";
+                    statusClass = "text-green-600";
+                    break;
+                case 2:
+                case 3:
+                    statusText = "状态异常";
+                    statusClass = "text-red-600";
+                    break;
+                default:
+                    statusText = `状态 ${point.fstatus}`;
+                    statusClass = "text-yellow-600";
+            }
+            
+            modalContent.innerHTML = `
+                <div class="space-y-2">
+                    <p><span class="font-medium">ID：</span>${point.fid}</p>
+                    <p><span class="font-medium">位置：</span>${point.flocation}</p>
+                    <p><span class="font-medium">区域：</span>${point.farea}</p>
+                    <p><span class="font-medium">监控类型：</span>${point.fphotoArea}</p>
+                    <p><span class="font-medium">状态：</span><span class="${statusClass} font-medium">${statusText}</span></p>
+                    <p><span class="font-medium">经纬度：</span>${point.flongitude}, ${point.flatitude}</p>
+                    <p><span class="font-medium">创建时间：</span>${point.fcreateTime}</p>
+                </div>
+            `;
+            
+            // 显示弹窗
+            infoModal.classList.remove('hidden');
+            infoModal.classList.add('flex');
+        }
+
+        // 检查路径是否避开所有监控点
+        function isRouteAvoidingAllPoints(routePoints) {
+            for (let i = 0; i < routePoints.length; i++) {
+                const routePoint = routePoints[i];
+                
+                for (let j = 0; j < convertedPoints.length; j++) {
+                    const monitorPoint = convertedPoints[j];
+                    if (!monitorPoint) continue;
+                    
+                    const distance = map.getDistance(routePoint, monitorPoint);
+                    if (distance < AVOID_DISTANCE) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        // 路径规划搜索完成回调
+        function onDrivingSearchComplete(results) {
+            if (driving.getStatus() === BMAP_STATUS_SUCCESS) {
+                const numPlans = results.getNumPlans();
+                let bestRoute = null;
+                let shortestDistance = Infinity;
+                
+                for (let i = 0; i < numPlans; i++) {
+                    const plan = results.getPlan(i);
+                    const route = plan.getRoute(0);
+                    const routePoints = route.getPath();
+                    const distance = route.getDistance();
+                    
+                    if (isRouteAvoidingAllPoints(routePoints) && distance < shortestDistance) {
+                        shortestDistance = distance;
+                        bestRoute = routePoints;
+                    }
+                }
+                
+                // 清除之前的路线
+                if (routeLine) {
+                    map.removeOverlay(routeLine);
+                    routeLine = null;
+                }
+                
+                if (bestRoute) {
+                    routeLine = new BMap.Polyline(bestRoute, { 
+                        strokeColor: "#2563eb", 
+                        strokeWeight: 6, 
+                        strokeOpacity: 0.7 
+                    });
+                    map.addOverlay(routeLine);
+                    map.setViewport(bestRoute);
+                    
+                    const distanceKm = (shortestDistance / 1000).toFixed(1);
+                    alert(`已找到避开所有监控点的最短路径，距离约为${distanceKm}公里。`);
+                } else {
+                    alert("抱歉，未找到能避开所有监控点的路径。");
+                    
+                    const shortestPlan = results.getPlan(0);
+                    const shortestRoute = shortestPlan.getRoute(0).getPath();
+                    routeLine = new BMap.Polyline(shortestRoute, { 
+                        strokeColor: "#ef4444", 
+                        strokeWeight: 6, 
+                        strokeOpacity: 0.7 
+                    });
+                    map.addOverlay(routeLine);
+                    map.setViewport(shortestRoute);
+                }
+            } else {
+                alert("路径规划失败，请检查输入的地点是否正确。");
+            }
+        }
+
+        // 规划路径
+        function planRoute(startAddr, endAddr) {
+            if (!mapLoaded) {
+                alert("请先输入百度地图API密钥并加载监控点数据");
+                return;
+            }
+            
+            clearRoute();
+            
+            const geocoder = new BMap.Geocoder();
+            
+            geocoder.getPoint(startAddr, function(startPoint) {
+                if (startPoint) {
+                    geocoder.getPoint(endAddr, function(endPoint) {
+                        if (endPoint) {
+                            startMarker = new BMap.Circle(startPoint, 15);
+                            map.addOverlay(startMarker);
+                            
+                            endMarker = new BMap.Circle(endPoint, 15);
+                            map.addOverlay(endMarker);
+                            
+                            driving.search(startPoint, endPoint);
+                        } else {
+                            alert("无法解析终点地址，请检查输入是否正确。");
+                        }
+                    }, "西安市");
+                } else {
+                    alert("无法解析起点地址，请检查输入是否正确。");
+                }
+            }, "西安市");
+        }
+
+        // 清除路径和标记
+        function clearRoute() {
+            if (!mapLoaded) return;
+            
+            driving.clearResults();
+            if (routeLine) {
+                map.removeOverlay(routeLine);
+                routeLine = null;
+            }
+            
+            if (startMarker) {
+                map.removeOverlay(startMarker);
+                startMarker = null;
+            }
+            if (endMarker) {
+                map.removeOverlay(endMarker);
+                endMarker = null;
+            }
+        }
+
+        // 获取当前位置并设置为起点或终点
+        function setCurrentLocation(isStart) {
+            if (!mapLoaded) {
+                alert("请先输入百度地图API密钥并加载监控点数据");
+                return;
+            }
+            
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    function(position) {
+                        const latitude = position.coords.latitude;
+                        const longitude = position.coords.longitude;
+                        
+                        const point = new BMap.Point(longitude, latitude);
+                        
+                        if (coordConversionEnabled) {
+                            const convertor = new BMap.Convertor();
+                            convertor.translate([point], 1, 5, function(data) {
+                                const baiduPoint = data.status === 0 ? data.points[0] : point;
+                                updateLocationInput(baiduPoint, isStart);
+                            });
+                        } else {
+                            updateLocationInput(point, isStart);
+                        }
+                    },
+                    function(error) {
+                        alert("无法获取您的位置，请手动输入地址。");
+                        console.error("获取位置失败：", error);
+                    }
+                );
+            } else {
+                alert("您的浏览器不支持地理定位功能，请手动输入地址。");
+            }
+        }
+        
+        // 更新位置输入框
+        function updateLocationInput(point, isStart) {
+            const geocoder = new BMap.Geocoder();
+            geocoder.getLocation(point, function(result) {
+                if (result) {
+                    const address = result.address;
+                    if (isStart) {
+                        document.getElementById('startPoint').value = address;
+                    } else {
+                        document.getElementById('endPoint').value = address;
+                    }
+                }
+            });
+        }
+
+        // 绑定事件处理函数
+        function bindEvents() {
+            // 标记限行摄像头按钮点击事件
+            document.getElementById('loadMarkersBtn').addEventListener('click', function() {
+                const apiKey = document.getElementById('baiduMapApiKey').value.trim();
+                
+                if (!apiKey) {
+                    alert("请输入百度地图API密钥");
+                    return;
+                }
+                
+                initMap(apiKey);
+            });
+            
+            // 路径规划表单提交
+            document.getElementById('routeForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const startPoint = document.getElementById('startPoint').value.trim();
+                const endPoint = document.getElementById('endPoint').value.trim();
+                
+                if (!startPoint || !endPoint) {
+                    alert("请输入起点和终点");
+                    return;
+                }
+                
+                planRoute(startPoint, endPoint);
+            });
+            
+            // 清除路径
+            document.getElementById('clearRoute').addEventListener('click', clearRoute);
+            
+            // 获取当前位置作为起点
+            document.getElementById('locateStart').addEventListener('click', function() {
+                setCurrentLocation(true);
+            });
+            
+            // 获取当前位置作为终点
+            document.getElementById('locateEnd').addEventListener('click', function() {
+                setCurrentLocation(false);
+            });
+            
+            // 关闭弹窗
+            document.getElementById('closeModal').addEventListener('click', function() {
+                document.getElementById('infoModal').classList.add('hidden');
+                document.getElementById('infoModal').classList.remove('flex');
+            });
+            
+            document.getElementById('closeModalBtn').addEventListener('click', function() {
+                document.getElementById('infoModal').classList.add('hidden');
+                document.getElementById('infoModal').classList.remove('flex');
+            });
+            
+            // 点击弹窗外部关闭弹窗
+            document.getElementById('infoModal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    this.classList.add('hidden');
+                    this.classList.remove('flex');
+                }
+            });
+            
+            // 滚动时改变导航栏样式
+            window.addEventListener('scroll', function() {
+                const header = document.querySelector('header');
+                if (window.scrollY > 10) {
+                    header.classList.add('py-2');
+                    header.classList.remove('py-4');
+                } else {
+                    header.classList.add('py-4');
+                    header.classList.remove('py-2');
+                }
+            });
+            
+            // 坐标转换开关事件
+            document.getElementById('coordConversionToggle').addEventListener('change', function() {
+                if (!mapLoaded) return;
+                
+                coordConversionEnabled = this.checked;
+                batchConvertAndMarkPoints();
+            });
+            
+            // 初始禁用路径规划按钮
+            document.querySelector('#routeForm button[type="submit"]').setAttribute('disabled', 'disabled');
+        }
+    </script>
+</body>
+</html>
+    
